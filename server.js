@@ -8,7 +8,12 @@ const path = require("path");
 const Papa = require("papaparse");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: 'https://demo.vdigo.com',  // Allow only your frontend
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    allowedHeaders: 'Content-Type,Authorization',
+    credentials: true // If your requests include cookies or auth headers
+}));
 app.use(express.json());
 
 // Connect to MongoDB
