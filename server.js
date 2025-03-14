@@ -8,12 +8,17 @@ const path = require("path");
 const Papa = require("papaparse");
 
 const app = express();
-app.use(cors({
-    origin: 'https://demo.vdigo.com',  // Allow only your frontend
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: 'Content-Type,Authorization',
-    credentials: true // If your requests include cookies or auth headers
-}));
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "https://demo.vdigo.com");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Credentials", "true");
+    if (req.method === "OPTIONS") {
+        return res.status(200).end();
+    }
+    next();
+});
+
 app.use(express.json());
 
 // Connect to MongoDB
@@ -203,33 +208,47 @@ const parseInvoiceDate = (dateStr) => {
 
 // API Route for Uploading Invoice
 app.post("/upload", upload.single("file"), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    try {
+        if (!req.file) {
+            console.error("No file uploaded");
+            return res.status(400).json({ error: "No file uploaded" });
+        }
 
-    const filePath = path.join(__dirname, req.file.path);
-    const invoiceData = extractInvoiceData(filePath);
+        const filePath = path.join(__dirname, req.file.path);
+        console.log(`Processing file: ${filePath}`);
 
-    // Check for duplicate invoice
-    const existingInvoice = await Invoice.findOne({ invoiceNumber: invoiceData.invoiceNumber });
+        const invoiceData = extractInvoiceData(filePath);
+        console.log("Extracted Invoice Data:", invoiceData);
 
-    // if (existingInvoice) {
-    //     fs.unlinkSync(filePath);
-    //     return res.status(409).json({
-    //         error: "Duplicate invoice detected",
-    //         invoiceNumber: invoiceData.invoiceNumber
-    //     });
-    // }
+        // Check for duplicate invoice
+        const existingInvoice = await Invoice.findOne({ invoiceNumber: invoiceData.invoiceNumber });
 
-    // Save to MongoDB
-    const newInvoice = new Invoice(invoiceData);
-    await newInvoice.save();
+        // if (existingInvoice) {
+        //     fs.unlinkSync(filePath);
+        //     console.warn("Duplicate invoice detected:", invoiceData.invoiceNumber);
+        //     return res.status(409).json({
+        //         error: "Duplicate invoice detected",
+        //         invoiceNumber: invoiceData.invoiceNumber
+        //     });
+        // }
 
-    fs.unlinkSync(filePath);
-    res.json({ 
-        message: `✅ ${invoiceData.invoiceSource} Invoice Processed Successfully`,
-        invoiceType: invoiceData.invoiceSource,
-        ...invoiceData
-    });
+        // Save to MongoDB
+        const newInvoice = new Invoice(invoiceData);
+        await newInvoice.save();
+        console.log("Invoice saved successfully");
+
+        fs.unlinkSync(filePath);
+        return res.json({
+            message: `✅ ${invoiceData.invoiceSource} Invoice Processed Successfully`,
+            invoiceType: invoiceData.invoiceSource,
+            ...invoiceData
+        });
+    } catch (error) {
+        console.error("❌ Upload Error:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 });
+
 
 // API Route to Export CSV
 app.get("/export", async (req, res) => {
