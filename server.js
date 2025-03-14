@@ -8,16 +8,17 @@ const path = require("path");
 const Papa = require("papaparse");
 
 const app = express();
-app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "https://demo.vdigo.com");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Credentials", "true");
-    if (req.method === "OPTIONS") {
-        return res.status(200).end();
-    }
-    next();
-});
+app.use(cors());
+// app.use((req, res, next) => {
+//     res.header("Access-Control-Allow-Origin", "https://demo.vdigo.com");
+//     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+//     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+//     res.header("Access-Control-Allow-Credentials", "true");
+//     if (req.method === "OPTIONS") {
+//         return res.status(200).end();
+//     }
+//     next();
+// });
 
 app.use(express.json());
 
@@ -26,7 +27,7 @@ mongoose.connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => console.error("❌ MongoDB Connection Error:", err));
+    .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
 // Define MongoDB Schema
 const InvoiceSchema = new mongoose.Schema({
@@ -75,7 +76,7 @@ const broadcastCalendar = [
 const detectInvoiceType = (data) => {
     // Check first few lines for known Marketron or Radio invoice patterns
     const firstFewLines = data.slice(0, 5).join(" ");
-    
+
     if (firstFewLines.includes("Marketron") || firstFewLines.includes("MKT")) {
         return "Marketron";
     } else if (firstFewLines.includes("Radio") || firstFewLines.includes("WOS")) {
@@ -108,101 +109,72 @@ const extractInvoiceData = (filePath) => {
     const invoiceType = detectInvoiceType(data);
 
     let invoice = {
-        advertiserID: "N/A",
         advertiser: "N/A",
-        address: "N/A",
-        station: "N/A",
         vendor: "N/A",
         ownershipGroup: "N/A",
         invoiceNumber: "N/A",
         invoiceDate: "N/A",
-        estimateCode: "N/A",
         billMemo: "N/A",
         totalAmount: "N/A",
-        dueDate: "N/A",
         terms: "N/A",
         invoiceSource: invoiceType,
-        category: invoiceType === "Marketron" ? "5016 COS - Digital" : "5015 COS - Radio",
-        schedules: []
+        category: invoiceType === "Marketron" ? "5016 COS - Digital" : "5015 COS - Radio"
     };
-
-    let currentSchedule = null;
 
     data.forEach(line => {
         const fields = line.split(";");
         const recordCode = fields[0];
 
         switch (recordCode) {
-            case "21": // Advertiser Information
-                invoice.advertiserID = fields[1] || "N/A";
-                invoice.advertiser = fields[2] || "N/A";
-                invoice.address = [fields[3], fields[4], fields[5], fields[6]].filter(Boolean).join(", ");
+            case "31": // Invoice Details & Advertiser
+                invoice.advertiser = fields[3] || "N/A"; // ✅ Corrected Advertiser Extraction
+                invoice.invoiceNumber = fields[8] || "N/A"; // ✅ Corrected Invoice #
+                invoice.invoiceDate = fields[5] ? parseInvoiceDate(fields[10]) : "N/A"; // ✅ Corrected Invoice Date
+                invoice.estimateCode = fields[7] || "N/A"; // ✅ Corrected Estimate Code
+                invoice.dueDate = fields[21] ? parseInvoiceDate(fields[21]) : "N/A";
+                const adv =  fields[3] || "N/A";
+                const est = fields[7] || "N/A";
+                invoice.billMemo = `${adv} - ${est}`;
                 break;
-            case "22": // Station Information
-                invoice.station = fields[1] || "N/A";
-                invoice.vendor = fields[4] || "N/A";
-                invoice.ownershipGroup = fields[5] || "N/A";
+
+                case "22": // Station & Ownership
+                const station = fields[1] || "N/A"; // KLPX
+                const stationFullName = fields[3] || "N/A"; // KLPX-FM
+                const ownershipGroup = fields[5] || "N/A"; // ARIZONA LOTUS CORP
+                invoice.vendor = `${ownershipGroup} - ${station} - ${stationFullName}`; // ✅ Corrected Vendor Combination
+                invoice.ownershipGroup = ownershipGroup; // ✅ Corrected Ownership Group
+                invoice.invoiceSource = fields[10] === "MKT" ? "Marketron" : "Radio"; // ✅ Corrected Invoice Source
                 break;
-            case "31": // Invoice Details
-                invoice.invoiceNumber = fields[8] || "N/A";
-                invoice.invoiceDate = fields[9] ? parseInvoiceDate(fields[9]) : "N/A"; // Convert date
-                invoice.estimateCode = fields[7] || "N/A";
-                invoice.billMemo = fields[3] || "N/A";
-                break;
-            case "32": // Invoice Notes (Marketron Specific)
-                if (!invoice.billMemo.includes(fields[1])) {
-                    invoice.billMemo += " " + fields[1];
-                }
-                break;
-            case "33": // Payment Terms & Due Date
-                invoice.terms = fields[1] || "N/A"; // Extract Payment Terms
-                invoice.dueDate = fields[2] ? parseInvoiceDate(fields[2]) : "N/A"; // Convert due date
-                break;
+                
+
             case "34": // Financial Information
                 invoice.totalAmount = fields[2] || "N/A";
                 break;
-            case "41": // Schedule Information
-                currentSchedule = {
-                    scheduleNumber: fields[1] || "N/A",
-                    days: fields[2] || "N/A",
-                    startDate: fields[7] || "N/A",
-                    endDate: fields[8] || "N/A",
-                    daypartDescription: "",
-                    spots: []
-                };
-                invoice.schedules.push(currentSchedule);
-                break;
-            case "42": // Daypart Description
-                if (currentSchedule) {
-                    currentSchedule.daypartDescription = fields[1] || "N/A";
-                }
-                break;
-            case "51": // Spot Details
-                if (currentSchedule) {
-                    currentSchedule.spots.push({
-                        date: fields[1] ? parseInvoiceDate(fields[1]) : "N/A",
-                        time: fields[3] || "N/A",
-                        length: fields[4] || "N/A",
-                        copyCreative: fields[5] || "N/A",
-                        rate: fields[6] || "N/A"
-                    });
-                }
+
+            case "33": // Terms (Not Found in This Case)
+                invoice.terms = fields[1] || "N/A"; // ✅ Corrected Terms
                 break;
         }
     });
 
-    // Apply broadcast calendar end date to the invoice date
-    invoice.invoiceDate = getBroadcastEndDate(invoice.invoiceDate);
+    // Ensure Due Date is calculated correctly
+    if (invoice.dueDate === "N/A") {
+        invoice.dueDate = getBroadcastEndDate(invoice.invoiceDate);
+    }
+
     return invoice;
 };
 
+
+
 const parseInvoiceDate = (dateStr) => {
-    if (!dateStr || dateStr.length !== 6) return "N/A"; // Handle invalid input
-    const year = "20" + dateStr.substring(0, 2); // Prefix year with "20"
-    const month = dateStr.substring(2, 4) - 1; // Convert to zero-based index
+    if (!dateStr || dateStr.length !== 6) return "N/A";
+    const year = "20" + dateStr.substring(0, 2); // Prefix "20" for full year
+    const month = dateStr.substring(2, 4) - 1; // Convert to zero-based month
     const day = dateStr.substring(4, 6);
-    return new Date(year, month, day).toISOString().split("T")[0]; // Format as YYYY-MM-DD
+    return new Date(year, month, day).toISOString().split("T")[0]; // Convert to YYYY-MM-DD
 };
+
 
 
 
