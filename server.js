@@ -6,20 +6,9 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const Papa = require("papaparse");
-
+const XLSX = require("xlsx");
 const app = express();
 app.use(cors());
-// app.use((req, res, next) => {
-//     res.header("Access-Control-Allow-Origin", "https://demo.vdigo.com");
-//     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-//     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-//     res.header("Access-Control-Allow-Credentials", "true");
-//     if (req.method === "OPTIONS") {
-//         return res.status(200).end();
-//     }
-//     next();
-// });
-
 app.use(express.json());
 
 // Connect to MongoDB
@@ -31,25 +20,51 @@ mongoose.connect(process.env.MONGO_URI, {
 
 // Define MongoDB Schema
 const InvoiceSchema = new mongoose.Schema({
-    advertiserID: String,
     advertiser: String,
-    address: String,
-    station: String,
     vendor: String,
     ownershipGroup: String,
     invoiceNumber: String,
     invoiceDate: String,
-    estimateCode: String,
     billMemo: String,
     totalAmount: String,
-    dueDate: String,
     terms: String,
     invoiceSource: String,
-    category: String,
-    schedules: Array
+    category: String
 });
 
 const Invoice = mongoose.model("Invoice", InvoiceSchema);
+
+
+const broadcastCalendar = [
+    { month: "January", start: "2024-12-31", end: "2025-01-28" },
+    { month: "February", start: "2025-01-29", end: "2025-02-25" },
+    { month: "March", start: "2025-02-26", end: "2025-03-31" },
+    { month: "April", start: "2025-04-01", end: "2025-04-28" },
+    { month: "May", start: "2025-04-29", end: "2025-05-26" },
+    { month: "June", start: "2025-05-27", end: "2025-06-30" },
+    { month: "July", start: "2025-07-01", end: "2025-07-28" },
+    { month: "August", start: "2025-07-29", end: "2025-08-25" },
+    { month: "September", start: "2025-08-26", end: "2025-09-29" },
+    { month: "October", start: "2025-09-30", end: "2025-10-27" },
+    { month: "November", start: "2025-10-28", end: "2025-11-24" },
+    { month: "December", start: "2025-11-25", end: "2025-12-29" }
+];
+const getBroadcastInvoiceDate = (invoiceDate) => {
+    if (!invoiceDate || isNaN(Date.parse(invoiceDate))) return "N/A";
+
+    const dateObj = new Date(invoiceDate);
+
+    for (const period of broadcastCalendar) {
+        const start = new Date(period.start);
+        const end = new Date(period.end);
+
+        if (dateObj >= start && dateObj <= end) {
+            return end.toISOString().split("T")[0]; // Return last day of the broadcast month
+        }
+    }
+
+    return invoiceDate; // Return original date if not found in the calendar
+};
 
 // Multer Configuration for TXT File Uploads
 const storage = multer.diskStorage({
@@ -64,46 +79,15 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage, fileFilter });
 
-// Broadcast Calendar Mapping
-const broadcastCalendar = [
-    { month: "January", start: "2024-12-30", end: "2025-01-26" },
-    { month: "February", start: "2025-01-27", end: "2025-02-23" },
-    { month: "March", start: "2025-02-24", end: "2025-03-30" },
-    { month: "April", start: "2025-03-31", end: "2025-04-27" }
-];
-
-
+// Detect Invoice Type (Radio or Marketron)
 const detectInvoiceType = (data) => {
-    // Check first few lines for known Marketron or Radio invoice patterns
-    const firstFewLines = data.slice(0, 5).join(" ");
-
-    if (firstFewLines.includes("Marketron") || firstFewLines.includes("MKT")) {
-        return "Marketron";
-    } else if (firstFewLines.includes("Radio") || firstFewLines.includes("WOS")) {
-        return "Radio";
-    }
-
-    // Additional check: Marketron invoices have structured numeric codes like "34;" at the end
-    if (data.some(line => line.startsWith("34;"))) {
+    if (data.some(line => line.includes("MKT"))) {
         return "Marketron";
     }
-
-    return "Radio"; // Default to Radio if uncertain
+    return "Radio";
 };
 
-const getBroadcastEndDate = (invoiceDate) => {
-    if (!invoiceDate || isNaN(Date.parse(invoiceDate))) return "N/A"; // Handle invalid date
-    const dateObj = new Date(invoiceDate);
-    for (const period of broadcastCalendar) {
-        const start = new Date(period.start);
-        const end = new Date(period.end);
-        if (dateObj >= start && dateObj <= end) {
-            return period.end; // Return correct broadcast end date
-        }
-    }
-    return invoiceDate; // If no match, return the original date
-};
-
+// Extract Invoice Data
 const extractInvoiceData = (filePath) => {
     const data = fs.readFileSync(filePath, "utf-8").split("\n");
     const invoiceType = detectInvoiceType(data);
@@ -118,9 +102,10 @@ const extractInvoiceData = (filePath) => {
         totalAmount: "N/A",
         terms: "N/A",
         invoiceSource: invoiceType,
-        category: invoiceType === "Marketron" ? "5016 COS - Digital" : "5015 COS - Radio"
+        category: invoiceType === "Marketron" ? "5015 COS - Radio" : "5015 COS - Radio"
     };
-
+    let station = "N/A"; // Declare station globally before switch
+    let stationFullName = "N/A";
     data.forEach(line => {
         const fields = line.split(";");
         const recordCode = fields[0];
@@ -132,20 +117,33 @@ const extractInvoiceData = (filePath) => {
                 invoice.invoiceDate = fields[5] ? parseInvoiceDate(fields[10]) : "N/A"; // ✅ Corrected Invoice Date
                 invoice.estimateCode = fields[7] || "N/A"; // ✅ Corrected Estimate Code
                 invoice.dueDate = fields[21] ? parseInvoiceDate(fields[21]) : "N/A";
-                const adv =  fields[3] || "N/A";
+                const adv = fields[3] || "N/A";
                 const est = fields[7] || "N/A";
                 invoice.billMemo = `${adv} - ${est}`;
                 break;
 
-                case "22": // Station & Ownership
-                const station = fields[1] || "N/A"; // KLPX
-                const stationFullName = fields[3] || "N/A"; // KLPX-FM
+            case "22": // Station & Ownership
+                station = fields[1] || "N/A"; // ✅ Assign Station (e.g., KLPX)
+                stationFullName = fields[3] || "N/A"; // ✅ Assign Station Full Name (e.g., KLPX-FM)
                 const ownershipGroup = fields[5] || "N/A"; // ARIZONA LOTUS CORP
-                invoice.vendor = `${ownershipGroup} - ${station} - ${stationFullName}`; // ✅ Corrected Vendor Combination
-                invoice.ownershipGroup = ownershipGroup; // ✅ Corrected Ownership Group
-                invoice.invoiceSource = fields[10] === "MKT" ? "Marketron" : "Radio"; // ✅ Corrected Invoice Source
+
+                invoice.ownershipGroup = ownershipGroup; // ✅ Assign Ownership Group
+                invoice.invoiceSource = invoiceType === "Marketron" ? "Marketron" : "Radio Invoices"; // ✅ Detect Marketron or Radio
+
+                if (invoice.invoiceSource === "Marketron") {
+                    // ✅ Marketron: Vendor = ownershipGroup - station - stationFullName
+                    invoice.vendor = `${ownershipGroup} - ${station} - ${stationFullName}`;
+                }
                 break;
-                
+
+            case "23": // ✅ Only for Radio: Vendor from Line 23
+                if (invoice.invoiceSource === "Radio Invoices") {
+                    const vendorField1 = fields[1] || "N/A"; // Get Vendor Field 1 from Line 23
+
+                    // ✅ Radio: Vendor = field 1 (from line 23) - station - stationFullName (from line 22)
+                    invoice.vendor = `${vendorField1} - ${station} - ${stationFullName}`;
+                }
+                break;
 
             case "34": // Financial Information
                 invoice.totalAmount = fields[2] || "N/A";
@@ -157,25 +155,22 @@ const extractInvoiceData = (filePath) => {
         }
     });
 
-    // Ensure Due Date is calculated correctly
-    if (invoice.dueDate === "N/A") {
-        invoice.dueDate = getBroadcastEndDate(invoice.invoiceDate);
-    }
-
     return invoice;
 };
 
-
-
+// Convert Invoice Date
 const parseInvoiceDate = (dateStr) => {
     if (!dateStr || dateStr.length !== 6) return "N/A";
+
     const year = "20" + dateStr.substring(0, 2); // Prefix "20" for full year
     const month = dateStr.substring(2, 4) - 1; // Convert to zero-based month
     const day = dateStr.substring(4, 6);
-    return new Date(year, month, day).toISOString().split("T")[0]; // Convert to YYYY-MM-DD
+
+    const invoiceDate = new Date(year, month, day).toISOString().split("T")[0];
+
+    // ✅ Apply Broadcast Calendar Mapping
+    return getBroadcastInvoiceDate(invoiceDate);
 };
-
-
 
 
 // API Route for Uploading Invoice
@@ -221,17 +216,23 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     }
 });
 
-
-// API Route to Export CSV
-app.get("/export", async (req, res) => {
+app.get("/export-excel", async (req, res) => {
     try {
-        const invoices = await Invoice.find().lean();
-        const csv = Papa.unparse(invoices);
-        res.header("Content-Type", "text/csv");
-        res.attachment("invoices.csv");
-        res.send(csv);
+        const invoices = await Invoice.find().lean(); // Fetch all invoices
+
+        // Convert Data to Excel
+        const ws = XLSX.utils.json_to_sheet(invoices);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Invoices");
+
+        // Generate Buffer & Send as Response
+        const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+        res.setHeader("Content-Disposition", "attachment; filename=invoices.xlsx");
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.send(excelBuffer);
     } catch (error) {
-        res.status(500).json({ error: "Failed to export CSV." });
+        console.error("❌ Excel Export Error:", error);
+        res.status(500).json({ error: "Failed to export Excel." });
     }
 });
 
