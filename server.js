@@ -240,6 +240,18 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     }
 });
 
+// ✅ API to delete all invoices
+app.delete("/invoices", (req, res) => {
+    db.run("DELETE FROM invoices", [], function (err) {
+        if (err) {
+            console.error("❌ Failed to delete invoices:", err);
+            return res.status(500).json({ error: "Failed to delete invoices" });
+        }
+
+        console.log("✅ All invoices deleted");
+        res.json({ message: "All invoices deleted successfully" });
+    });
+});
 
 app.get("/invoices", async (req, res) => {
     try {
