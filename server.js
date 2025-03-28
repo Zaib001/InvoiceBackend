@@ -8,12 +8,13 @@ const Papa = require("papaparse");
 const XLSX = require("xlsx");
 const db = require("./config/db")
 const app = express();
-
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
 
 app.use(cors({
-origin: ["http://localhost:5173", "https://demo.vdigo.com"]
-  }));
+    origin: ["http://localhost:5173", "https://demo.vdigo.com"]
+}));
 app.use(express.json());
 
 
@@ -84,7 +85,7 @@ const parseInvoiceDate = (dateStr) => {
     const invoiceDate = new Date(year, month, day).toISOString().split("T")[0];
 
     // ✅ Apply Broadcast Calendar Mapping
-    return getBroadcastInvoiceDate(invoiceDate);
+    return invoiceDate;
 };
 
 
@@ -114,75 +115,181 @@ const extractInvoiceData = (filePath) => {
     const data = fs.readFileSync(filePath, "utf-8").split("\n");
     const invoiceType = detectInvoiceType(data);
 
-    let invoices = []; // ✅ Store multiple invoices
-    let invoice = {}; // ✅ Temporary invoice object
-    let station = "N/A"; 
+    let invoices = [];
+    let invoice = {};
+    let station = "N/A";
     let stationFullName = "N/A";
-    let ownershipGroup = "N/A"; 
-    let lastVendor = "N/A"; // ✅ Store last known vendor
-    let vendorField1= "N/A";
-    data.forEach(line => {
+    let ownershipGroup = "";
+    let vendorField1 = "N/A";
+    let foundVendorFrom23 = false;
+
+    data.forEach((line) => {
         const fields = line.split(";");
         const recordCode = fields[0];
 
         switch (recordCode) {
-            case "22": // ✅ Extract Station & Ownership Info
+            case "22":
                 station = fields[1] || "N/A";
                 stationFullName = fields[3] || "N/A";
                 ownershipGroup = fields[5] || "N/A";
                 break;
-                case "23": // ✅ Assign Vendor ONLY for Radio from Line 23
+
+            case "23":
+                if (invoiceType === "Radio Invoices") {
                     vendorField1 = fields[1] || "N/A";
+                    foundVendorFrom23 = true;
+                }
                 break;
-            case "31": // ✅ Start New Invoice Processing
+
+            case "31":
                 if (invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
                     invoices.push({ ...invoice });
                 }
 
+                const rawFallbackDate = fields[4];
+
                 invoice = {
                     advertiser: fields[3] || "N/A",
                     invoiceNumber: fields[8] || "N/A",
-                    invoiceDate: fields[5] ? parseInvoiceDate(fields[10]) : "N/A",
+                    invoiceDate: parseInvoiceDate(fields[5]),
                     estimateCode: fields[7] || "N/A",
                     dueDate: fields[21] ? parseInvoiceDate(fields[21]) : "N/A",
                     billMemo: `${fields[3] || "N/A"} - ${fields[7] || "N/A"}`,
-                    totalAmount: "N/A", // ✅ To be updated in case 34
+                    totalAmount: "N/A",
                     terms: "N/A",
                     invoiceSource: invoiceType,
-                    category: invoiceType === "Marketron" ? "5015 COS - Radio" : "5015 COS - Radio",
-                    vendor: invoiceType === "Marketron" ? `${ownershipGroup} - ${station} - ${stationFullName}` : `${vendorField1} - ${station} - ${stationFullName}`, // ✅ Set "N/A" for Radio until case 23
+                    category: "5015 COS - Radio",
+                    vendor: "N/A",
                     ownershipGroup: ownershipGroup,
                 };
                 break;
 
-           
 
-            case "34": // ✅ Assign Total Amount
-                invoice.totalAmount = fields[4] || "N/A";
+
+
+
+            case "33":
+                invoice.terms = fields[1] || "N/A";
                 break;
 
-            case "33": // ✅ Assign Terms
-                invoice.terms = fields[1] || "N/A";
+            case "34":
+                invoice.totalAmount = fields[4] || "N/A";
                 break;
         }
     });
 
-    // ✅ Ensure last invoice is added
     if (invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
         invoices.push(invoice);
     }
+
+    // ✅ Assign vendor values after all parsing is done
+    invoices = invoices.map((inv) => {
+        if (inv.invoiceSource === "Marketron") {
+            inv.vendor = `${ownershipGroup} - ${station} - ${stationFullName}`;
+        } else {
+            inv.vendor = `${vendorField1} - ${station} - ${stationFullName}`;
+        }
+        return inv;
+    });
 
     return invoices;
 };
 
 
+const JWT_SECRET = process.env.JWT_SECRET || "e3892006d7feb3ce1391d95aa9f7b4c1e454869c48414e5b6253a35a5dfc806fd2e19f3bff7f2191b11dbe78b4d8d42bb6e872ff9d0a9970ba08e996174b7a25";
 
+// ✅ Middleware to Verify JWT Token
+const verifyToken = (req, res, next) => {
+    const token = req.headers.authorization?.split(" ")[1];
 
+    if (!token) {
+      return res.status(401).json({ error: "Access denied. No token provided." });
+    }
+  
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+      if (err) {
+        return res.status(403).json({ error: "Invalid token." });
+      }
+      req.user = decoded;
+      next();
+    });
+  };
+  
+  // ✅ Get User Profile API
+  app.get("/profile", (req, res) => {
+    const { username } = req.user;
+  
+    db.get("SELECT username FROM users WHERE username = ?", [username], (err, user) => {
+      if (err) {
+        console.error("❌ Error fetching user profile:", err);
+        return res.status(500).json({ error: "Error fetching user profile" });
+      }
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ username: user.username });
+    });
+  });
 
+db.run(`CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL
+)`);
 
+app.post("/register", async (req, res) => {
+  const { username, password } = req.body;
 
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
 
+  const hashedPassword = await bcrypt.hash(password, 10);
 
+  db.run("INSERT INTO users (username, password) VALUES (?, ?)", [username, hashedPassword], (err) => {
+    if (err) {
+      console.error("❌ Registration Error:", err);
+      return res.status(500).json({ error: "User registration failed." });
+    }
+    res.status(201).json({ message: "User registered successfully." });
+  });
+});
+
+app.post("/", (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
+
+  db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
+    if (err) {
+      console.error("❌ Login Error:", err);
+      return res.status(500).json({ error: "Login failed." });
+    }
+
+    if (!user) return res.status(401).json({ error: "Invalid username or password." });
+
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) return res.status(401).json({ error: "Invalid username or password." });
+
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "1h" });
+    res.json({ message: "Login successful.", token });
+  });
+});
+
+app.get("/protected", verifyToken, (req, res) => {
+    res.status(200).json({
+      message: `Welcome, ${req.user.username}. You have successfully accessed a protected resource.`,
+      user: { id: req.user.id, username: req.user.username }
+    });
+  });
+  
+  // ✅ Logout API (Professional)
+  app.post("/logout", (req, res) => {
+    // Invalidate token on client-side (No server storage in this implementation)
+    res.status(200).json({ message: "You have been successfully logged out. Please log in again to continue." });
+  });
 
 app.post("/upload", upload.single("file"), async (req, res) => {
     try {
@@ -257,6 +364,73 @@ app.delete("/invoices", (req, res) => {
         res.json({ message: "All invoices deleted successfully" });
     });
 });
+// ✅ Update Invoice API
+app.put("/invoices/:invoiceNumber", (req, res) => {
+    const { invoiceNumber } = req.params;
+    const {
+        advertiser,
+        vendor,
+        ownershipGroup,
+        invoiceDate,
+        billMemo,
+        totalAmount,
+        terms,
+        invoiceSource,
+        category
+    } = req.body;
+
+    const query = `
+        UPDATE invoices
+        SET 
+            advertiser = COALESCE(?, advertiser),
+            vendor = COALESCE(?, vendor),
+            ownershipGroup = COALESCE(?, ownershipGroup),
+            invoiceDate = COALESCE(?, invoiceDate),
+            billMemo = COALESCE(?, billMemo),
+            totalAmount = COALESCE(?, totalAmount),
+            terms = COALESCE(?, terms),
+            invoiceSource = COALESCE(?, invoiceSource),
+            category = COALESCE(?, category)
+        WHERE invoiceNumber = ?
+    `;
+
+    const values = [
+        advertiser || null, vendor || null, ownershipGroup || null,
+        invoiceDate || null, billMemo || null, totalAmount || null,
+        terms || null, invoiceSource || null, category || null,
+        invoiceNumber
+    ];
+
+    db.run(query, values, function (err) {
+        if (err) {
+            console.error("❌ Failed to update invoice:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            console.warn("⚠ No invoice found with Invoice Number:", invoiceNumber);
+            return res.status(404).json({ error: "Invoice not found" });
+        }
+        console.log("✅ Invoice updated:", invoiceNumber);
+        res.json({ message: "Invoice updated successfully" });
+    });
+});
+
+app.put("/invoices/override/:invoiceNumber", (req, res) => {
+    const { invoiceNumber } = req.params;
+    const { isProcessed } = req.body;
+
+    const query = `UPDATE invoices SET isProcessed = ? WHERE invoiceNumber = ?`;
+
+    db.run(query, [isProcessed, invoiceNumber], (err) => {
+        if (err) {
+            console.error("❌ Failed to update invoice:", err);
+            return res.status(500).json({ error: "Failed to update invoice" });
+        }
+        console.log(`✅ Invoice ${invoiceNumber} status updated to ${isProcessed}`);
+        res.json({ message: "Invoice status updated successfully" });
+    });
+});
+
 
 app.get("/invoices", async (req, res) => {
     try {
