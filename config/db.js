@@ -15,6 +15,11 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 
 // Create Table for Invoices
 db.serialize(() => {
+     db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL
+  )`);
     db.run(`
         CREATE TABLE IF NOT EXISTS invoices (
              id INTEGER PRIMARY KEY AUTOINCREMENT,
