@@ -6,6 +6,7 @@ const { extractInvoiceData } = require("../utils/invoiceParser");
 const xlsx = require("xlsx");
 
 
+// ✅ Just return parsed invoices (DO NOT SAVE TO DB here)
 exports.uploadInvoice = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -16,7 +17,7 @@ exports.uploadInvoice = async (req, res) => {
     let invoices = [];
 
     if (ext === ".txt") {
-      invoices = extractInvoiceData(filePath); // Existing TXT logic
+      invoices = extractInvoiceData(filePath);
     } else if (ext === ".xlsx") {
       const workbook = xlsx.readFile(filePath);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -33,13 +34,29 @@ exports.uploadInvoice = async (req, res) => {
         terms: row.terms || "N/A",
         invoiceSource: row.invoiceSource || "Excel Upload",
         category: row.category || "5015 COS - Radio",
+        isProcessed: false
       }));
     } else {
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
-    // ✅ Save invoices
-    const db = require("../config/db");
+    fs.unlinkSync(filePath);
+    res.json({ message: `Parsed ${invoices.length} invoices`, invoices });
+  } catch (err) {
+    console.error("❌ Upload Error:", err);
+    res.status(500).json({ error: "Failed to process invoice file" });
+  }
+};
+
+// ✅ Save invoices to DB before exporting
+exports.saveInvoicesAndExport = async (req, res) => {
+  const invoices = req.body.invoices;
+
+  if (!Array.isArray(invoices) || invoices.length === 0) {
+    return res.status(400).json({ error: "No invoices provided" });
+  }
+
+  try {
     for (const invoice of invoices) {
       const exists = await new Promise((resolve, reject) => {
         db.get("SELECT * FROM invoices WHERE invoiceNumber = ?", [invoice.invoiceNumber], (err, row) => {
@@ -52,8 +69,8 @@ exports.uploadInvoice = async (req, res) => {
         await new Promise((resolve, reject) => {
           db.run(
             `INSERT INTO invoices 
-              (advertiser, vendor, ownershipGroup, invoiceNumber, invoiceDate, billMemo, totalAmount, terms, invoiceSource, category) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (advertiser, vendor, ownershipGroup, invoiceNumber, invoiceDate, billMemo, totalAmount, terms, invoiceSource, category, isProcessed) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               invoice.advertiser,
               invoice.vendor,
@@ -64,9 +81,10 @@ exports.uploadInvoice = async (req, res) => {
               invoice.totalAmount,
               invoice.terms,
               invoice.invoiceSource,
-              invoice.category
+              invoice.category,
+              invoice.isProcessed ? 1 : 0
             ],
-            err => {
+            (err) => {
               if (err) return reject(err);
               resolve();
             }
@@ -75,14 +93,21 @@ exports.uploadInvoice = async (req, res) => {
       }
     }
 
-    fs.unlinkSync(filePath);
-    res.json({ message: `✅ ${invoices.length} invoices uploaded.`, invoices });
+    // ✅ Now generate and send Excel
+    const ws = xlsx.utils.json_to_sheet(invoices);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Invoices");
 
+    const buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Disposition", "attachment; filename=invoices.xlsx");
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
   } catch (err) {
-    console.error("❌ Upload Error:", err);
-    res.status(500).json({ error: "Failed to process invoice file" });
+    console.error("❌ Export Error:", err);
+    res.status(500).json({ error: "Failed to save/export invoices" });
   }
 };
+
 
 
 exports.getAllInvoices = (req, res) => {

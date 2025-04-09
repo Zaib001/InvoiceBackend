@@ -35,6 +35,13 @@ exports.login = (req, res) => {
   const { username, password } = req.body;
   console.log("📥 Login Request:", { username });
 
+  // ✅ Enforce domain restriction
+  const allowedDomain = "@instinctivemediagroup.com";
+  if (!username.endsWith(allowedDomain)) {
+    console.warn("⛔ Login blocked: Unauthorized email domain");
+    return res.status(403).json({ error: `Only users with '${allowedDomain}' can log in.` });
+  }
+
   db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
     if (err) {
       console.error("❌ DB Error during login:", err.message);
@@ -62,6 +69,7 @@ exports.login = (req, res) => {
     }
   });
 };
+
 
 // ✅ PROFILE
 exports.profile = (req, res) => {

@@ -28,5 +28,6 @@ router.delete("/", invoiceController.deleteAllInvoices);
 router.put("/:invoiceNumber", invoiceController.updateInvoice);
 router.put("/override/:invoiceNumber", invoiceController.overrideStatus);
 router.get("/export-excel", invoiceController.exportToExcel);
+router.post("/export-save", invoiceController.saveInvoicesAndExport);
 
 module.exports = router;
