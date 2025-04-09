@@ -32,7 +32,8 @@ db.serialize(() => {
     totalAmount TEXT,
     terms TEXT,
     invoiceSource TEXT,
-    category TEXT
+    category TEXT,
+    isProcessed INTEGER DEFAULT 0
         )
     `, (err) => {
         if (err) {
