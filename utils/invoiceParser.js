@@ -26,7 +26,7 @@ const extractInvoiceData = (filePath) => {
       case "22": {
         station = fields[1] || "N/A";
         stationFullName = fields[3] || "N/A";
-        ownershipGroup = fields[5] || "N/A";
+        ownershipGroup = fields[4] || "N/A";
         break;
       }
 
