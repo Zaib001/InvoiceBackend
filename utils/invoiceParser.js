@@ -16,7 +16,7 @@ const extractInvoiceData = (filePath) => {
   let station = "N/A";
   let stationFullName = "N/A";
   let ownershipGroup = "N/A";
-  let vendorField1 = "N/A";
+  let currentVendor = "N/A"; // ✅ holds the last valid vendor line per invoice block
 
   for (const line of data) {
     const fields = line.split(";").map(f => f.trim());
@@ -26,18 +26,19 @@ const extractInvoiceData = (filePath) => {
       case "22": {
         station = fields[1] || "N/A";
         stationFullName = fields[3] || "N/A";
-        ownershipGroup = fields[4] || "N/A";
+        ownershipGroup = fields[5] || "N/A"; // ✅ Corrected index
         break;
       }
 
       case "23": {
         if (invoiceType === "Radio Invoices") {
-          vendorField1 = fields[1] || "N/A";
+          currentVendor = fields[1] || "N/A";
         }
         break;
       }
 
       case "31": {
+        // ✅ Save the previous invoice if valid
         if (invoice && invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
           invoices.push({ ...invoice });
         }
@@ -61,9 +62,8 @@ const extractInvoiceData = (filePath) => {
           ownershipGroup,
           vendor: invoiceType === "Marketron"
             ? `${ownershipGroup} - ${station} - ${stationFullName}`
-            : `${vendorField1} - ${station} - ${stationFullName}`,
+            : `${currentVendor} - ${station} - ${stationFullName}`
         };
-
         break;
       }
 
@@ -83,7 +83,7 @@ const extractInvoiceData = (filePath) => {
     }
   }
 
-  // Push the final invoice if valid
+  // ✅ Push the last invoice if it exists
   if (invoice && invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
     invoices.push(invoice);
   }
