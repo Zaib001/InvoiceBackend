@@ -22,7 +22,7 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage, fileFilter });
 
-router.post("/upload", upload.single("files"), invoiceController.uploadInvoice);
+router.post("/upload", upload.array("files"), invoiceController.uploadInvoice);
 router.get("/", invoiceController.getAllInvoices);
 router.delete("/", invoiceController.deleteAllInvoices);
 router.put("/:invoiceNumber", invoiceController.updateInvoice);

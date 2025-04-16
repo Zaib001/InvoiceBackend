@@ -58,8 +58,6 @@ exports.uploadInvoice = async (req, res) => {
     res.status(500).json({ error: "Failed to process uploaded files" });
   }
 };
-
-// ✅ Save invoices to DB before exporting
 exports.saveInvoicesAndExport = async (req, res) => {
   const invoices = req.body.invoices;
 
@@ -118,23 +116,18 @@ exports.saveInvoicesAndExport = async (req, res) => {
     res.status(500).json({ error: "Failed to save/export invoices" });
   }
 };
-
-
-
 exports.getAllInvoices = (req, res) => {
   db.all("SELECT * FROM invoices", [], (err, rows) => {
     if (err) return res.status(500).json({ error: "Failed to fetch invoices" });
     res.json(rows);
   });
 };
-
 exports.deleteAllInvoices = (req, res) => {
   db.run("DELETE FROM invoices", [], (err) => {
     if (err) return res.status(500).json({ error: "Failed to delete invoices" });
     res.json({ message: "All invoices deleted." });
   });
 };
-
 exports.updateInvoice = (req, res) => {
   const { invoiceNumber } = req.params;
   const {
@@ -163,7 +156,6 @@ exports.updateInvoice = (req, res) => {
     res.json({ message: "Invoice updated successfully" });
   });
 };
-
 exports.overrideStatus = (req, res) => {
   const { invoiceNumber } = req.params;
   const { isProcessed } = req.body;
@@ -173,7 +165,6 @@ exports.overrideStatus = (req, res) => {
     res.json({ message: "Status updated." });
   });
 };
-
 exports.exportToExcel = (req, res) => {
   db.all("SELECT * FROM invoices", [], (err, data) => {
     if (err) return res.status(500).json({ error: "Failed to fetch invoices" });
