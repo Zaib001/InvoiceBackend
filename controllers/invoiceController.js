@@ -6,45 +6,56 @@ const { extractInvoiceData } = require("../utils/invoiceParser");
 const xlsx = require("xlsx");
 
 
-// ✅ Just return parsed invoices (DO NOT SAVE TO DB here)
 exports.uploadInvoice = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
-    const filePath = path.join(__dirname, "..", req.file.path);
-    const ext = path.extname(filePath).toLowerCase();
-
-    let invoices = [];
-
-    if (ext === ".txt") {
-      invoices = extractInvoiceData(filePath);
-    } else if (ext === ".xlsx") {
-      const workbook = xlsx.readFile(filePath);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const parsed = xlsx.utils.sheet_to_json(sheet);
-
-      invoices = parsed.map(row => ({
-        advertiser: row.advertiser || "N/A",
-        vendor: row.vendor || "N/A",
-        ownershipGroup: row.ownershipGroup || "N/A",
-        invoiceNumber: row.invoiceNumber || "N/A",
-        invoiceDate: row.invoiceDate || "N/A",
-        billMemo: row.billMemo || "N/A",
-        totalAmount: row.totalAmount || "0.00",
-        terms: row.terms || "N/A",
-        invoiceSource: row.invoiceSource || "Excel Upload",
-        category: row.category || "5015 COS - Radio",
-        isProcessed: false
-      }));
-    } else {
-      return res.status(400).json({ error: "Unsupported file type" });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "No files uploaded" });
     }
 
-    fs.unlinkSync(filePath);
-    res.json({ message: `Parsed ${invoices.length} invoices`, invoices });
+    let allInvoices = [];
+
+    for (const file of req.files) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const filePath = path.join(__dirname, "..", file.path);
+
+      let invoices = [];
+
+      if (ext === ".txt") {
+        invoices = extractInvoiceData(filePath); // Marketron or Radio
+      } else if (ext === ".xlsx") {
+        const workbook = XLSX.readFile(filePath);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const parsed = XLSX.utils.sheet_to_json(sheet);
+
+        invoices = parsed.map(row => ({
+          advertiser: row.advertiser || "N/A",
+          vendor: row.vendor || "N/A",
+          ownershipGroup: row.ownershipGroup || "N/A",
+          invoiceNumber: row.invoiceNumber || "N/A",
+          invoiceDate: row.invoiceDate || "N/A",
+          billMemo: row.billMemo || "N/A",
+          totalAmount: row.totalAmount || "0.00",
+          terms: row.terms || "N/A",
+          invoiceSource: row.invoiceSource || "Excel Upload",
+          category: row.category || "5015 COS - Radio",
+          isProcessed: false
+        }));
+      } else {
+        return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
+      }
+
+      allInvoices = allInvoices.concat(invoices);
+      fs.unlinkSync(filePath);
+    }
+
+    res.json({
+      message: `Parsed ${allInvoices.length} invoices from ${req.files.length} files`,
+      invoices: allInvoices
+    });
+
   } catch (err) {
     console.error("❌ Upload Error:", err);
-    res.status(500).json({ error: "Failed to process invoice file" });
+    res.status(500).json({ error: "Failed to process uploaded files" });
   }
 };
 
