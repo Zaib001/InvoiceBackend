@@ -58,12 +58,12 @@ exports.getAllUsers = async (req, res) => {
 
 // ✅ UPDATE USER
 exports.updateUser = async (req, res) => {
-  const { id } = req.params;
+  const { _id } = req.params;
   const { username, password } = req.body;
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const updated = await User.findByIdAndUpdate(id, { username, password: hashedPassword });
+    const updated = await User.findByIdAndUpdate(_id, { username, password: hashedPassword });
 
     if (!updated) return res.status(404).json({ error: "User not found" });
 
