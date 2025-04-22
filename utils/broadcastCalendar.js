@@ -1,18 +1,18 @@
-const broadcastCalendar = [
-  { month: "January", start: "2024-12-31", end: "2025-01-28" },
-  { month: "February", start: "2025-01-29", end: "2025-02-25" },
-  { month: "March", start: "2025-02-26", end: "2025-03-31" },
-  { month: "April", start: "2025-04-01", end: "2025-04-28" },
-  { month: "May", start: "2025-04-29", end: "2025-05-26" },
-  { month: "June", start: "2025-05-27", end: "2025-06-30" },
-  { month: "July", start: "2025-07-01", end: "2025-07-28" },
-  { month: "August", start: "2025-07-29", end: "2025-08-25" },
-  { month: "September", start: "2025-08-26", end: "2025-09-29" },
-  { month: "October", start: "2025-09-30", end: "2025-10-27" },
-  { month: "November", start: "2025-10-28", end: "2025-11-24" },
-  { month: "December", start: "2025-11-25", end: "2025-12-29" }
-];
 
+const broadcastCalendar = [
+  { month: "January", start: "2024-12-29", end: "2025-01-25" },
+  { month: "February", start: "2025-01-26", end: "2025-02-22" },
+  { month: "March", start: "2025-02-23", end: "2025-03-29" },
+  { month: "April", start: "2025-03-30", end: "2025-04-26" },
+  { month: "May", start: "2025-04-27", end: "2025-05-31" },
+  { month: "June", start: "2025-06-01", end: "2025-06-28" },
+  { month: "July", start: "2025-06-29", end: "2025-07-26" },
+  { month: "August", start: "2025-07-27", end: "2025-08-30" },
+  { month: "September", start: "2025-08-31", end: "2025-09-27" },
+  { month: "October", start: "2025-09-28", end: "2025-10-25" },
+  { month: "November", start: "2025-10-26", end: "2025-11-29" },
+  { month: "December", start: "2025-11-30", end: "2025-12-27" }
+];
 // ✅ Finds the broadcast end date from invoice date
 const getBroadcastInvoiceDate = (invoiceDate) => {
   if (!invoiceDate || isNaN(Date.parse(invoiceDate))) return "N/A";
