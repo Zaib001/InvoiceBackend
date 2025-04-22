@@ -13,10 +13,15 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// DB Ready Log
-db.serialize(() => {
-  console.log("✅ Database is ready.");
-});
+// ✅ MySQL connection test
+(async () => {
+  try {
+    await db.getConnection(); // test the pool
+    console.log("✅ MySQL Database is connected.");
+  } catch (error) {
+    console.error("❌ MySQL Connection Error:", error.message);
+  }
+})();
 
 app.use("/api/auth", authRoutes);
 app.use("/api/invoices", invoiceRoutes);

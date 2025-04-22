@@ -1,55 +1,42 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const db = require("../config/db");
+const pool = require("../config/db");
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
-
-// ✅ REGISTER
 exports.register = async (req, res) => {
   const { username, password } = req.body;
-  console.log("📥 Register Request:", { username });
-
-  if (!username || !password) {
-    return res.status(400).json({ error: "Username and password are required." });
-  }
 
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    db.run("INSERT INTO users (username, password) VALUES (?, ?)", [username, hashedPassword], (err) => {
-      if (err) {
-        return res.status(500).json({ error: "Registration failed. Username might be taken." });
-      }
-      res.status(201).json({ message: "User registered successfully." });
-    });
+    const hashed = await bcrypt.hash(password, 10);
+    await pool.query("INSERT INTO users (username, password) VALUES (?, ?)", [username, hashed]);
+    res.status(201).json({ message: "User registered successfully" });
   } catch (err) {
-    res.status(500).json({ error: "Unexpected registration error" });
+    res.status(500).json({ error: "Registration failed." });
   }
 };
 
-// ✅ LOGIN (restricted to instinctivemediagroup.com)
-exports.login = (req, res) => {
+exports.login = async (req, res) => {
   const { username, password } = req.body;
   const allowedDomain = "@instinctivemediagroup.com";
 
   if (!username.endsWith(allowedDomain)) {
-    return res.status(403).json({ error: `Only users with '${allowedDomain}' can log in.` });
+    return res.status(403).json({ error: `Only '${allowedDomain}' logins allowed.` });
   }
 
-  db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
-    if (err) return res.status(500).json({ error: "Login failed due to DB error." });
+  try {
+    const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
+    const user = rows[0];
     if (!user) return res.status(401).json({ error: "Invalid credentials." });
 
-    try {
-      const valid = await bcrypt.compare(password, user.password);
-      if (!valid) return res.status(401).json({ error: "Invalid credentials." });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error: "Invalid credentials." });
 
-      const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "1h" });
-      res.json({ message: "Login successful.", token });
-    } catch (err) {
-      res.status(500).json({ error: "Login failed due to server error." });
-    }
-  });
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    res.json({ message: "Login successful.", token });
+  } catch (err) {
+    res.status(500).json({ error: "Login error" });
+  }
 };
+
 
 // ✅ GET ALL USERS
 exports.getAllUsers = (req, res) => {
