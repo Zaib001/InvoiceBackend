@@ -29,6 +29,8 @@ exports.uploadInvoice = async (req, res) => {
         invoices = parsed.map(row => ({
           advertiser: row.advertiser || "N/A",
           vendor: row.vendor || "N/A",
+          station: row.station,
+          stationFullName: row.stationFullName,
           ownershipGroup: row.ownershipGroup || "N/A",
           invoiceNumber: row.invoiceNumber || "N/A",
           invoiceDate: row.invoiceDate || "N/A",
