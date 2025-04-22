@@ -52,6 +52,7 @@ const extractInvoiceData = (filePath) => {
           advertiser,
           invoiceNumber,
           station,
+          stationFullName,
           invoiceDate: parseInvoiceDate(invoiceDateRaw),
           estimateCode: fields[7] || "N/A",
           dueDate: parseInvoiceDate(dueDateRaw),

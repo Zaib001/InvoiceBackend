@@ -1,11 +1,11 @@
 const path = require("path");
 const fs = require("fs");
 const XLSX = require("xlsx");
-const db = require("../config/db");
-const { extractInvoiceData } = require("../utils/invoiceParser");
 const xlsx = require("xlsx");
+const InvoiceModel = require("../models/invoiceModel");
+const { extractInvoiceData } = require("../utils/invoiceParser");
 
-
+// ✅ Upload & Parse Invoices
 exports.uploadInvoice = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -17,11 +17,10 @@ exports.uploadInvoice = async (req, res) => {
     for (const file of req.files) {
       const ext = path.extname(file.originalname).toLowerCase();
       const filePath = path.join(__dirname, "..", file.path);
-
       let invoices = [];
 
       if (ext === ".txt") {
-        invoices = extractInvoiceData(filePath); // Marketron or Radio
+        invoices = extractInvoiceData(filePath);
       } else if (ext === ".xlsx") {
         const workbook = XLSX.readFile(filePath);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -44,7 +43,7 @@ exports.uploadInvoice = async (req, res) => {
         return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
       }
 
-      allInvoices = allInvoices.concat(invoices);
+      allInvoices.push(...invoices);
       fs.unlinkSync(filePath);
     }
 
@@ -58,6 +57,8 @@ exports.uploadInvoice = async (req, res) => {
     res.status(500).json({ error: "Failed to process uploaded files" });
   }
 };
+
+// ✅ Save Invoices & Export
 exports.saveInvoicesAndExport = async (req, res) => {
   const invoices = req.body.invoices;
 
@@ -67,42 +68,10 @@ exports.saveInvoicesAndExport = async (req, res) => {
 
   try {
     for (const invoice of invoices) {
-      const exists = await new Promise((resolve, reject) => {
-        db.get("SELECT * FROM invoices WHERE invoiceNumber = ?", [invoice.invoiceNumber], (err, row) => {
-          if (err) return reject(err);
-          resolve(row);
-        });
-      });
-
-      if (!exists) {
-        await new Promise((resolve, reject) => {
-          db.run(
-            `INSERT INTO invoices 
-            (advertiser, vendor, ownershipGroup, invoiceNumber, invoiceDate, billMemo, totalAmount, terms, invoiceSource, category, isProcessed) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              invoice.advertiser,
-              invoice.vendor,
-              invoice.ownershipGroup,
-              invoice.invoiceNumber,
-              invoice.invoiceDate,
-              invoice.billMemo,
-              invoice.totalAmount,
-              invoice.terms,
-              invoice.invoiceSource,
-              invoice.category,
-              invoice.isProcessed ? 1 : 0
-            ],
-            (err) => {
-              if (err) return reject(err);
-              resolve();
-            }
-          );
-        });
-      }
+      const exists = await InvoiceModel.findOne({ invoiceNumber: invoice.invoiceNumber });
+      if (!exists) await InvoiceModel.create(invoice);
     }
 
-    // ✅ Now generate and send Excel
     const ws = xlsx.utils.json_to_sheet(invoices);
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "Invoices");
@@ -116,60 +85,58 @@ exports.saveInvoicesAndExport = async (req, res) => {
     res.status(500).json({ error: "Failed to save/export invoices" });
   }
 };
-exports.getAllInvoices = (req, res) => {
-  db.all("SELECT * FROM invoices", [], (err, rows) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch invoices" });
-    res.json(rows);
-  });
+
+// ✅ Get All
+exports.getAllInvoices = async (req, res) => {
+  try {
+    const data = await InvoiceModel.find().sort({ createdAt: -1 });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch invoices" });
+  }
 };
-exports.deleteAllInvoices = (req, res) => {
-  db.run("DELETE FROM invoices", [], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to delete invoices" });
+
+// ✅ Delete All
+exports.deleteAllInvoices = async (req, res) => {
+  try {
+    await InvoiceModel.deleteMany({});
     res.json({ message: "All invoices deleted." });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete invoices" });
+  }
 };
-exports.updateInvoice = (req, res) => {
+
+// ✅ Update
+exports.updateInvoice = async (req, res) => {
   const { invoiceNumber } = req.params;
-  const {
-    advertiser, vendor, ownershipGroup, invoiceDate,
-    billMemo, totalAmount, terms, invoiceSource, category
-  } = req.body;
-
-  const query = `
-    UPDATE invoices SET
-      advertiser = COALESCE(?, advertiser),
-      vendor = COALESCE(?, vendor),
-      ownershipGroup = COALESCE(?, ownershipGroup),
-      invoiceDate = COALESCE(?, invoiceDate),
-      billMemo = COALESCE(?, billMemo),
-      totalAmount = COALESCE(?, totalAmount),
-      terms = COALESCE(?, terms),
-      invoiceSource = COALESCE(?, invoiceSource),
-      category = COALESCE(?, category)
-    WHERE invoiceNumber = ?`;
-
-  const values = [advertiser, vendor, ownershipGroup, invoiceDate, billMemo, totalAmount, terms, invoiceSource, category, invoiceNumber];
-
-  db.run(query, values, function (err) {
-    if (err) return res.status(500).json({ error: "Failed to update invoice" });
-    if (this.changes === 0) return res.status(404).json({ error: "Invoice not found" });
+  try {
+    const updated = await InvoiceModel.findOneAndUpdate({ invoiceNumber }, req.body, { new: true });
+    if (!updated) return res.status(404).json({ error: "Invoice not found" });
     res.json({ message: "Invoice updated successfully" });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update invoice" });
+  }
 };
-exports.overrideStatus = (req, res) => {
+
+// ✅ Status
+exports.overrideStatus = async (req, res) => {
   const { invoiceNumber } = req.params;
   const { isProcessed } = req.body;
 
-  db.run("UPDATE invoices SET isProcessed = ? WHERE invoiceNumber = ?", [isProcessed, invoiceNumber], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to update status" });
+  try {
+    const updated = await InvoiceModel.findOneAndUpdate({ invoiceNumber }, { isProcessed }, { new: true });
+    if (!updated) return res.status(404).json({ error: "Invoice not found" });
     res.json({ message: "Status updated." });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update status" });
+  }
 };
-exports.exportToExcel = (req, res) => {
-  db.all("SELECT * FROM invoices", [], (err, data) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch invoices" });
 
-    const ws = XLSX.utils.json_to_sheet(data);
+// ✅ Export All
+exports.exportToExcel = async (req, res) => {
+  try {
+    const data = await InvoiceModel.find({});
+    const ws = XLSX.utils.json_to_sheet(data.map(d => d.toObject()));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Invoices");
 
@@ -177,5 +144,7 @@ exports.exportToExcel = (req, res) => {
     res.setHeader("Content-Disposition", "attachment; filename=invoices.xlsx");
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(buffer);
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to export" });
+  }
 };
