@@ -62,6 +62,7 @@ const {parseInvoiceDate} = require('../utils/broadcastCalendar')
 exports.uploadInvoice = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
+      console.log("⚠️ No files uploaded");
       return res.status(400).json({ error: "No files uploaded" });
     }
 
@@ -72,8 +73,11 @@ exports.uploadInvoice = async (req, res) => {
       const filePath = path.join(__dirname, "..", file.path);
       let invoices = [];
 
+      console.log(`📥 Processing file: ${file.originalname} (${ext})`);
+
       if (ext === ".txt") {
-        invoices = extractInvoiceData(filePath); 
+        invoices = extractInvoiceData(filePath);
+        console.log(`✅ Parsed ${invoices.length} invoices from TXT file.`);
       } else if (ext === ".xlsx") {
         const workbook = XLSX.readFile(filePath);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -86,23 +90,29 @@ exports.uploadInvoice = async (req, res) => {
           stationFullName: row.stationFullName || "N/A",
           ownershipGroup: row.ownershipGroup || "N/A",
           invoiceNumber: row.invoiceNumber || "N/A",
-          invoiceDate: parseInvoiceDate(row.invoiceDate), // ✅ Using Broadcast Calendar Mapped Date
+          invoiceDate: parseInvoiceDate(row.invoiceDate), // ✅ Broadcast Calendar mapping
           billMemo: row.billMemo || "N/A",
           totalAmount: row.totalAmount || "0.00",
           terms: row.terms || "N/A",
           invoiceSource: row.invoiceSource || "Excel Upload",
           category: row.category || "5015 COS - Radio",
-          cabLabel: row["CAB Label"] || "", // ✅ Now properly parsing CAB Label
+          cabLabel: row["CAB Label"] || "", // ✅ CAB Label parsing
           isProcessed: false,
         }));
+
+        console.log(`✅ Parsed ${invoices.length} invoices from Excel file.`);
       } else {
+        console.log(`❌ Unsupported file type: ${file.originalname}`);
         return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
       }
 
       allInvoices.push(...invoices);
-      fs.unlinkSync(filePath); // ✅ Clean temp file
+
+      fs.unlinkSync(filePath); // ✅ Delete temp file after parsing
+      console.log(`🗑️ Deleted temp file: ${file.originalname}`);
     }
 
+    console.log(`🎯 Total invoices parsed: ${allInvoices.length}`);
     res.json({
       message: `Parsed ${allInvoices.length} invoices from ${req.files.length} files`,
       invoices: allInvoices
@@ -113,6 +123,7 @@ exports.uploadInvoice = async (req, res) => {
     res.status(500).json({ error: "Failed to process uploaded files" });
   }
 };
+
 // ✅ Save Invoices & Export
 exports.saveInvoicesAndExport = async (req, res) => {
   const invoices = req.body.invoices;
