@@ -6,6 +6,59 @@ const InvoiceModel = require("../models/invoiceModel");
 const { extractInvoiceData } = require("../utils/invoiceParser");
 
 // ✅ Upload & Parse Invoices
+// exports.uploadInvoice = async (req, res) => {
+//   try {
+//     if (!req.files || req.files.length === 0) {
+//       return res.status(400).json({ error: "No files uploaded" });
+//     }
+
+//     let allInvoices = [];
+
+//     for (const file of req.files) {
+//       const ext = path.extname(file.originalname).toLowerCase();
+//       const filePath = path.join(__dirname, "..", file.path);
+//       let invoices = [];
+
+//       if (ext === ".txt") {
+//         invoices = extractInvoiceData(filePath);
+//       } else if (ext === ".xlsx") {
+//         const workbook = XLSX.readFile(filePath);
+//         const sheet = workbook.Sheets[workbook.SheetNames[0]];
+//         const parsed = XLSX.utils.sheet_to_json(sheet);
+
+//         invoices = parsed.map(row => ({
+//           advertiser: row.advertiser || "N/A",
+//           vendor: row.vendor || "N/A",
+//           station: row.station,
+//           stationFullName: row.stationFullName,
+//           ownershipGroup: row.ownershipGroup || "N/A",
+//           invoiceNumber: row.invoiceNumber || "N/A",
+//           invoiceDate: row.invoiceDate || "N/A",
+//           billMemo: row.billMemo || "N/A",
+//           totalAmount: row.totalAmount || "0.00",
+//           terms: row.terms || "N/A",
+//           invoiceSource: row.invoiceSource || "Excel Upload",
+//           category: row.category || "5015 COS - Radio",
+//           isProcessed: false
+//         }));
+//       } else {
+//         return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
+//       }
+
+//       allInvoices.push(...invoices);
+//       fs.unlinkSync(filePath);
+//     }
+
+//     res.json({
+//       message: `Parsed ${allInvoices.length} invoices from ${req.files.length} files`,
+//       invoices: allInvoices
+//     });
+
+//   } catch (err) {
+//     console.error("❌ Upload Error:", err);
+//     res.status(500).json({ error: "Failed to process uploaded files" });
+//   }
+// };
 exports.uploadInvoice = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -20,7 +73,7 @@ exports.uploadInvoice = async (req, res) => {
       let invoices = [];
 
       if (ext === ".txt") {
-        invoices = extractInvoiceData(filePath);
+        invoices = extractInvoiceData(filePath); 
       } else if (ext === ".xlsx") {
         const workbook = XLSX.readFile(filePath);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -29,24 +82,25 @@ exports.uploadInvoice = async (req, res) => {
         invoices = parsed.map(row => ({
           advertiser: row.advertiser || "N/A",
           vendor: row.vendor || "N/A",
-          station: row.station,
-          stationFullName: row.stationFullName,
+          station: row.station || "N/A",
+          stationFullName: row.stationFullName || "N/A",
           ownershipGroup: row.ownershipGroup || "N/A",
           invoiceNumber: row.invoiceNumber || "N/A",
-          invoiceDate: row.invoiceDate || "N/A",
+          invoiceDate: parseInvoiceDate(row.invoiceDate), // ✅ Using Broadcast Calendar Mapped Date
           billMemo: row.billMemo || "N/A",
           totalAmount: row.totalAmount || "0.00",
           terms: row.terms || "N/A",
           invoiceSource: row.invoiceSource || "Excel Upload",
           category: row.category || "5015 COS - Radio",
-          isProcessed: false
+          cabLabel: row["CAB Label"] || "", // ✅ Now properly parsing CAB Label
+          isProcessed: false,
         }));
       } else {
         return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
       }
 
       allInvoices.push(...invoices);
-      fs.unlinkSync(filePath);
+      fs.unlinkSync(filePath); // ✅ Clean temp file
     }
 
     res.json({
@@ -59,7 +113,6 @@ exports.uploadInvoice = async (req, res) => {
     res.status(500).json({ error: "Failed to process uploaded files" });
   }
 };
-
 // ✅ Save Invoices & Export
 exports.saveInvoicesAndExport = async (req, res) => {
   const invoices = req.body.invoices;
