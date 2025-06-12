@@ -4,7 +4,7 @@ const XLSX = require("xlsx");
 const xlsx = require("xlsx");
 const InvoiceModel = require("../models/invoiceModel");
 const { extractInvoiceData } = require("../utils/invoiceParser");
-const {parseInvoiceDate} = require('../utils/broadcastCalendar')
+const { parseInvoiceDate } = require('../utils/broadcastCalendar')
 // ✅ Upload & Parse Invoices
 // exports.uploadInvoice = async (req, res) => {
 //   try {
@@ -76,7 +76,7 @@ exports.uploadInvoice = async (req, res) => {
       console.log(`📥 Processing file: ${file.originalname} (${ext})`);
 
       if (ext === ".txt") {
-        invoices = extractInvoiceData(filePath);
+        invoices = await extractInvoiceData(filePath);
         console.log(`✅ Parsed ${invoices.length} invoices from TXT file.`);
       } else if (ext === ".xlsx") {
         const workbook = XLSX.readFile(filePath);
@@ -106,7 +106,11 @@ exports.uploadInvoice = async (req, res) => {
         return res.status(400).json({ error: `Unsupported file type: ${file.originalname}` });
       }
 
-      allInvoices.push(...invoices);
+      if (Array.isArray(invoices)) {
+        allInvoices.push(...invoices);
+      } else {
+        console.warn(`⚠️ No invoices returned from: ${file.originalname}`);
+      }
 
       fs.unlinkSync(filePath); // ✅ Delete temp file after parsing
       console.log(`🗑️ Deleted temp file: ${file.originalname}`);
