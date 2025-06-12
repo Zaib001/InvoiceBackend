@@ -1,12 +1,14 @@
+// utils/extractInvoiceData.js
 const fs = require("fs");
 const path = require("path");
 const { parseInvoiceDate } = require("./broadcastCalendar");
+const resolveVendor = require("./resolveVendor");
 
 const detectInvoiceType = (data) => {
   return data.some(line => line.includes("MKT")) ? "Marketron" : "Radio Invoices";
 };
 
-const extractInvoiceData = (filePath) => {
+const extractInvoiceData = async (filePath) => {
   const data = fs.readFileSync(filePath, "utf-8").split("\n");
   const invoiceType = detectInvoiceType(data);
 
@@ -16,29 +18,26 @@ const extractInvoiceData = (filePath) => {
   let station = "N/A";
   let stationFullName = "N/A";
   let ownershipGroup = "N/A";
-  let currentVendor = "N/A"; // ✅ holds the last valid vendor line per invoice block
+  let currentVendor = "N/A";
 
   for (const line of data) {
     const fields = line.split(";").map(f => f.trim());
     const recordCode = fields[0];
 
     switch (recordCode) {
-      case "22": {
+      case "22":
         station = fields[1] || "N/A";
         stationFullName = fields[3] || "N/A";
-        ownershipGroup = fields[5] || "N/A"; // ✅ Corrected index
+        ownershipGroup = fields[5] || "N/A";
         break;
-      }
 
-      case "23": {
+      case "23":
         if (invoiceType === "Radio Invoices") {
           currentVendor = fields[1] || "N/A";
         }
         break;
-      }
 
-      case "31": {
-        // ✅ Save the previous invoice if valid
+      case "31":
         if (invoice && invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
           invoices.push({ ...invoice });
         }
@@ -62,30 +61,30 @@ const extractInvoiceData = (filePath) => {
           invoiceSource: invoiceType,
           category: "5015 COS - Radio",
           ownershipGroup,
-          vendor: invoiceType === "Marketron"
-            ? `${ownershipGroup} - ${station} - ${stationFullName}`
-            : `${currentVendor} - ${station} - ${stationFullName}`
+          vendor: await resolveVendor({
+            invoiceType,
+            currentVendor,
+            station,
+            stationFullName,
+            ownershipGroup
+          })
         };
         break;
-      }
 
-      case "33": {
+      case "33":
         if (invoice) {
           invoice.terms = fields[1] || "N/A";
         }
         break;
-      }
 
-      case "34": {
+      case "34":
         if (invoice) {
           invoice.totalAmount = fields[4] || "0.00";
         }
         break;
-      }
     }
   }
 
-  // ✅ Push the last invoice if it exists
   if (invoice && invoice.invoiceNumber && invoice.invoiceNumber !== "N/A") {
     invoices.push(invoice);
   }
