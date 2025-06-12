@@ -3,7 +3,7 @@ const fs = require("fs");
 const XLSX = require("xlsx");
 const xlsx = require("xlsx");
 const InvoiceModel = require("../models/invoiceModel");
-const { extractInvoiceData } = require("../utils/invoiceParser");
+const { extractInvoiceData } = require("../utils/extractInvoiceData");
 const { parseInvoiceDate } = require('../utils/broadcastCalendar')
 // ✅ Upload & Parse Invoices
 // exports.uploadInvoice = async (req, res) => {
@@ -77,7 +77,7 @@ exports.uploadInvoice = async (req, res) => {
 
       if (ext === ".txt") {
         invoices = await extractInvoiceData(filePath);
-        console.log(`✅ Parsed ${invoices.length} invoices from TXT file.`);
+        console.log(`✅ Parsed ${Array.isArray(invoices) ? invoices.length : 0} invoices from TXT file.`);
       } else if (ext === ".xlsx") {
         const workbook = XLSX.readFile(filePath);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
