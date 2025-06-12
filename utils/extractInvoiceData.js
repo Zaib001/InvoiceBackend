@@ -9,7 +9,7 @@ const detectInvoiceType = (data) => {
 const extractInvoiceData = async (filePath) => {
   try {
     const rawData = fs.readFileSync(filePath, "utf-8");
-    const data = rawData.split("\n");
+    const data = rawData.split("\n").filter(line => line.trim() !== "");
     const invoiceType = detectInvoiceType(data);
 
     let invoices = [];
@@ -18,7 +18,6 @@ const extractInvoiceData = async (filePath) => {
     let station = "N/A";
     let stationFullName = "N/A";
     let ownershipGroup = "N/A";
-    let currentVendor = "N/A";
 
     for (const line of data) {
       const fields = line.split(";").map(f => f.trim());
@@ -29,12 +28,6 @@ const extractInvoiceData = async (filePath) => {
           station = fields[1] || "N/A";
           stationFullName = fields[3] || "N/A";
           ownershipGroup = fields[5] || "N/A";
-          break;
-
-        case "23":
-          if (invoiceType === "Radio Invoices") {
-            currentVendor = fields[1] || "N/A";
-          }
           break;
 
         case "31":
@@ -48,14 +41,14 @@ const extractInvoiceData = async (filePath) => {
           const dueDateRaw = fields[21] || "";
 
           invoice = {
-            advertiser,
-            invoiceNumber,
+            advertiser: advertiser.trim(),
+            invoiceNumber: invoiceNumber.trim(),
             station,
             stationFullName,
             invoiceDate: parseInvoiceDate(invoiceDateRaw),
-            estimateCode: fields[7] || "N/A",
+            estimateCode: fields[7]?.trim() || "N/A",
             dueDate: parseInvoiceDate(dueDateRaw),
-            billMemo: `${advertiser} - ${fields[7] || "N/A"}`,
+            billMemo: `${advertiser} - ${fields[7]?.trim() || "N/A"}`,
             totalAmount: "N/A",
             terms: "N/A",
             invoiceSource: invoiceType,
@@ -63,7 +56,6 @@ const extractInvoiceData = async (filePath) => {
             ownershipGroup,
             vendor: await resolveVendor({
               invoiceType,
-              currentVendor,
               station,
               stationFullName,
               ownershipGroup
@@ -73,13 +65,13 @@ const extractInvoiceData = async (filePath) => {
 
         case "33":
           if (invoice) {
-            invoice.terms = fields[1] || "N/A";
+            invoice.terms = fields[1]?.trim() || "N/A";
           }
           break;
 
         case "34":
           if (invoice) {
-            invoice.totalAmount = fields[4] || "0.00";
+            invoice.totalAmount = fields[4]?.trim() || "0.00";
           }
           break;
       }
@@ -92,7 +84,7 @@ const extractInvoiceData = async (filePath) => {
     return invoices;
   } catch (err) {
     console.error("❌ Failed to extract invoice data:", err);
-    return []; // return empty array to prevent crashing
+    return [];
   }
 };
 

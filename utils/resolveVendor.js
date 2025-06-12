@@ -1,23 +1,34 @@
 // utils/resolveVendor.js
 const VendorModel = require("../models/Vendor");
 
-const resolveVendor = async ({ invoiceType, currentVendor, station, stationFullName, ownershipGroup }) => {
+const resolveVendor = async ({ invoiceType, station, stationFullName, ownershipGroup }) => {
   if (invoiceType === "Marketron") {
-    return `${ownershipGroup} - ${station} - ${stationFullName}`;
+    return ownershipGroup || "N/A";
   }
 
-  if (currentVendor === "N/A") {
-    const match = await VendorModel.findOne({
-      qbStationList: new RegExp(`^${station}$`, 'i'),
-      station: new RegExp(`^${stationFullName}$`, 'i')
-    }).lean();
+  // First try full match: qbStationList + station
+  const exactMatch = await VendorModel.findOne({
+    qbStationList: new RegExp(`^${station}$`, 'i'),
+    station: new RegExp(`^${stationFullName}$`, 'i')
+  }).lean();
 
-    if (match) {
-      return `${match.qbVendorOwner} - ${station} - ${stationFullName}`;
-    }
+  if (exactMatch && exactMatch.qbVendorOwner) {
+    console.log(exactMatch.qbVendorOwner)
+    return exactMatch.qbVendorOwner;
   }
 
-  return `${currentVendor} - ${station} - ${stationFullName}`;
+  // Fallback: try just qbStationList
+  const fallbackMatch = await VendorModel.findOne({
+    qbStationList: new RegExp(`^${station}$`, 'i')
+  }).lean();
+
+  if (fallbackMatch && fallbackMatch.qbVendorOwner) {
+    console.log(fallbackMatch.qbVendorOwner)
+    return fallbackMatch.qbVendorOwner;
+  }
+
+  // Nothing found
+  return "Unknown Vendor";
 };
 
 module.exports = resolveVendor;
